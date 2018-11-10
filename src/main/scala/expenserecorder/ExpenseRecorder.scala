@@ -23,18 +23,6 @@ object ExpenseRecorder {
     val expenseCli = new ExpenseCli("mongodb://localhost:27017")
     val authCli = new AuthCli("mongodb://localhost:27017")
 
-//    def myUserPassAuthenticator(credentials:HttpCredentials): Future[Option[String]] =
-//      credentials match {
-////        case p @ Credentials.Provided(id) => authCli.verify(p.identifier, "")
-////          Future {
-////            // potentially
-////            if (p.verify("p4ssw0rd")) Some(id)
-////            else None
-////          }
-//        case Some(BasicHttpCredentials(username, password)) => Future.successful(None)
-//        case _ => Future.successful(None)
-//      }
-
     def myUserPassAuthenticator(credentials: Option[HttpCredentials]): Future[AuthenticationResult[String]] =
       Future {
         credentials match {
@@ -56,7 +44,7 @@ object ExpenseRecorder {
           post {
             formFields('itemName, 'amount, 'comment, 'category) {
               (itemName, amount, comment, category) => {
-                //cli.addExpense(userName, Integer.parseInt(amount), itemName, comment, ExpenseCategory.withName(category))
+                expenseCli.addExpense(userName, Integer.parseInt(amount), itemName, comment, ExpenseCategory.withName(category))
                 complete(
                   HttpEntity(
                     ContentTypes.`text/plain(UTF-8)`,
