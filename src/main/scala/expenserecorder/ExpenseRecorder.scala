@@ -2,14 +2,14 @@ package expenserecorder
 
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.headers.{BasicHttpCredentials, HttpChallenge, HttpCredentials}
-import akka.http.scaladsl.model.{ContentTypes, HttpEntity}
+import akka.http.scaladsl.model.headers._
+import akka.http.scaladsl.model.{ContentTypes, HttpEntity, StatusCodes}
 import akka.http.scaladsl.server.Directives._
-import akka.http.scaladsl.server.directives.Credentials
 import akka.stream.ActorMaterializer
+import pdi.jwt._
 
-import scala.concurrent.Future
 import scala.io.StdIn
+import scala.util.{Failure, Success}
 
 object ExpenseRecorder {
 
@@ -21,38 +21,36 @@ object ExpenseRecorder {
     implicit val executionContext = system.dispatcher
 
     val expenseCli = new ExpenseCli("mongodb://localhost:27017")
+    val jwtKey = sys.env("EXPENSE_RECORDER_JWT_SECRET")
     val authCli = new AuthCli("mongodb://localhost:27017")
 
-    def myUserPassAuthenticator(credentials: Option[HttpCredentials]): Future[AuthenticationResult[String]] =
-      Future {
-        credentials match {
-          case Some(creds)  => {
-            val basicCreds = creds.asInstanceOf[BasicHttpCredentials]
-            val res = authCli.verify(basicCreds.username, basicCreds.password)
-            res match {
-              case Some(username) => Right(username)
-              case _ => Left(HttpChallenge("MyAuth", Some("MyRealm")))
-            }
-          }
-          case _ => Left(HttpChallenge("MyAuth", Some("MyRealm")))
-        }
-      }
+    def verifyCookie(loginToken: String) = {
+      Jwt.decodeRaw(loginToken, jwtKey, Seq(JwtAlgorithm.HS256))
+    }
+
 
     val route =
       path("expense") {
-        authenticateOrRejectWithChallenge (myUserPassAuthenticator _) { userName =>
           post {
-            formFields('itemName, 'amount, 'comment, 'category) {
-              (itemName, amount, comment, category) => {
-                expenseCli.addExpense(userName, Integer.parseInt(amount), itemName, comment, ExpenseCategory.withName(category))
-                complete(
-                  HttpEntity(
-                    ContentTypes.`text/plain(UTF-8)`,
-                    // transform each number to a chunk of bytes
-                    "Recorded " + amount + " spent on " + comment
-                  )
-                )
+            cookie ("loginToken") { loginToken => {
+              val verifyResult = verifyCookie(loginToken.value)
+              verifyResult match {
+                case Success(emailID) => formFields('itemName, 'amount, 'comment, 'category) {
+                  (itemName, amount, comment, category) => {
+                    expenseCli.addExpense(emailID, Integer.parseInt(amount), itemName, comment,
+                      ExpenseCategory.withName(category))
+                    complete(
+                      HttpEntity(
+                        ContentTypes.`text/plain(UTF-8)`,
+                        // transform each number to a chunk of bytes
+                        "Recorded " + amount + " spent on " + itemName
+                      )
+                    )
+                  }
+                }
+                case Failure(exception) => complete(StatusCodes.Unauthorized)
               }
+
             }
           }
         }
@@ -72,7 +70,23 @@ object ExpenseRecorder {
 
           }
         }
+      } ~ path("login") {
+      post {
+        formFields('emailID, 'password) {
+          (emailID, password) => {
+            val result = authCli.verify(emailID, password)
+            result match {
+              case e : Some[String] =>
+                val token = Jwt.encode("""{"user":""" + emailID + "}", jwtKey, JwtAlgorithm.HS256)
+                setCookie(HttpCookie("loginToken", token)) {
+                  complete(StatusCodes.OK)
+                }
+              case _ => complete(StatusCodes.Unauthorized)
+            }
+          }
+        }
       }
+    }
     val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
     println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
     StdIn.readLine() // let it run until user presses return
