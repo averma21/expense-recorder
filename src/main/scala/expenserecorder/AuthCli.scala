@@ -44,11 +44,12 @@ class AuthCli(val mongoURL: String) {
 
   def verify(emailID: String, passWord: String): Option[String] = {
     val f = credsColl.find(equal("emailID", emailID)).head().
-      withFilter(creds => BCrypt.checkpw(passWord, creds.passHash))
+      withFilter(creds => creds != null && BCrypt.checkpw(passWord, creds.passHash))
     while(!f.isCompleted) {}
     try {
       Some(f.value.get.get.emailID)
     } catch {
+
       case e: NoSuchElementException => None
     }
   }

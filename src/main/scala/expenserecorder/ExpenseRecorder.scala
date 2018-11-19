@@ -28,7 +28,7 @@ object ExpenseRecorder {
       Jwt.decodeRaw(loginToken, jwtKey, Seq(JwtAlgorithm.HS256))
     }
 
-
+    val corsHandler = new CORSHandlerImpl();
     val route =
       path("expense") {
           post {
@@ -87,7 +87,7 @@ object ExpenseRecorder {
         }
       }
     }
-    val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+    val bindingFuture = Http().bindAndHandle(corsHandler.corsHandler(route), "localhost", 8080)
     println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
     StdIn.readLine() // let it run until user presses return
     bindingFuture
